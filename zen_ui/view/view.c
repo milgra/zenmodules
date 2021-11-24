@@ -3,8 +3,8 @@
 
 #include "wm_event.c"
 #include "zc_bitmap.c"
-#include "zc_math2.c"
 #include "zc_vector.c"
+#include "zm_math2.c"
 
 typedef enum _laypos_t // layout position
 {
@@ -74,6 +74,7 @@ typedef enum _texst_t // texture loading state
   TS_BLANK,   /* texture is empty */
   TS_PENDING, /* texture is under generation */
   TS_READY,   /* texture is generated */
+  TS_STORED,  /* texture is stored in texmap */
 } texst_t;
 
 typedef enum _textype_t
@@ -127,6 +128,7 @@ struct _view_t
   char blocks_scroll; /* blocks scroll events */
 
   char*    id;     /* identifier for handling view */
+  uint32_t nth;    /* allocation counter for debugging */
   vec_t*   views;  /* subviews */
   view_t*  parent; /* parent view */
   uint32_t index;  /* depth */
@@ -142,9 +144,11 @@ struct _view_t
 };
 
 view_t* view_new(char* id, r2_t frame);
-void    view_add(view_t* view, view_t* subview);
-void    view_insert(view_t* view, view_t* subview, uint32_t index);
-void    view_remove(view_t* view, view_t* subview);
+void    view_add_subview(view_t* view, view_t* subview);
+void    view_remove_subiew(view_t* view, view_t* subview);
+void    view_insert_subview(view_t* view, view_t* subview, uint32_t index);
+void    view_remove_from_parent(view_t* view);
+void    view_set_parent(view_t* view, view_t* parent);
 
 void    view_evt(view_t* view, ev_t ev); /* general event, sending to all views */
 void    view_coll_touched(view_t* view, ev_t ev, vec_t* queue);
@@ -164,17 +168,16 @@ void view_desc(void* pointer, int level);
 void view_desc_layout(vlayout_t l);
 void view_calc_global(view_t* view);
 
-extern char resend;
-
 #endif
 
 #if __INCLUDE_LEVEL__ == 0
 
+#include "views.c"
 #include "zc_cstring.c"
 #include "zc_memory.c"
 #include <limits.h>
 
-char resend = 1;
+int view_cnt = 0;
 
 void view_del(void* pointer)
 {
@@ -182,15 +185,26 @@ void view_del(void* pointer)
 
   if (view->layout.background_image != NULL) REL(view->layout.background_image);
 
+  if (view->handler_data) REL(view->handler_data);
+  if (view->tex_gen_data) REL(view->tex_gen_data);
+
+  if (view->texture.bitmap) REL(view->texture.bitmap); // not all views has texture
+
   REL(view->id);
-  REL(view->texture.bitmap);
   REL(view->views);
 }
 
 view_t* view_new(char* id, r2_t frame)
 {
-  view_t* view            = mem_calloc(sizeof(view_t), "view_t", view_del, view_desc);
-  view->id                = cstr_fromcstring(id);
+  if (MGET(views.names, id))
+  {
+    printf("VIEW NAMES MUST BE UNIQUE!!! : %s\n", id);
+    abort();
+  }
+
+  view_t* view            = CAL(sizeof(view_t), view_del, view_desc);
+  view->id                = cstr_new_cstring(id);
+  view->nth               = view_cnt++;
   view->views             = VNEW();
   view->frame.local       = frame;
   view->frame.global      = frame;
@@ -213,6 +227,11 @@ view_t* view_new(char* id, r2_t frame)
   view->layout.bottom        = INT_MAX;
   view->layout.shadow_color  = 0x00000033;
 
+  // store and release
+
+  VADD(views.list, view);
+  MPUT(views.names, id, view);
+
   return view;
 }
 
@@ -226,10 +245,8 @@ void view_set_masked(view_t* view, char masked)
   }
 }
 
-void view_add(view_t* view, view_t* subview)
+void view_add_subview(view_t* view, view_t* subview)
 {
-  resend = 1;
-
   for (int i = 0; i < view->views->length; i++)
   {
     view_t* sview = view->views->data[i];
@@ -240,17 +257,20 @@ void view_add(view_t* view, view_t* subview)
     }
   }
 
+  views.arrange = 1;
+
+  view_set_parent(subview, view);
+
   VADD(view->views, subview);
-  subview->parent = view;
 
   if (view->layout.masked) view_set_masked(subview, 1);
 
   view_calc_global(view);
 }
 
-void view_insert(view_t* view, view_t* subview, uint32_t index)
+void view_insert_subview(view_t* view, view_t* subview, uint32_t index)
 {
-  resend = 1;
+  views.arrange = 1;
 
   for (int i = 0; i < view->views->length; i++)
   {
@@ -263,20 +283,35 @@ void view_insert(view_t* view, view_t* subview, uint32_t index)
   }
 
   vec_ins(view->views, subview, index);
-  subview->parent = view;
+
+  view_set_parent(subview, view);
 
   if (view->layout.masked) view_set_masked(subview, 1);
 
   view_calc_global(view);
 }
 
-void view_remove(view_t* view, view_t* subview)
+void view_remove_subview(view_t* view, view_t* subview)
 {
-  resend = 1;
+  char success = VREM(view->views, subview);
 
-  VREM(view->views, subview);
+  if (success == 1)
+  {
+    views.arrange = 1;
+    view_set_parent(subview, NULL);
+  }
+}
 
-  subview->parent = NULL;
+void view_remove_from_parent(view_t* view)
+{
+  if (view->parent) view_remove_subview(view->parent, view);
+}
+
+void view_set_parent(view_t* view, view_t* parent)
+{
+  if (view->parent) REL(view->parent);
+  view->parent = parent;
+  if (view->parent) RET(view->parent);
 }
 
 void view_coll_touched(view_t* view, ev_t ev, vec_t* queue)
@@ -286,7 +321,7 @@ void view_coll_touched(view_t* view, ev_t ev, vec_t* queue)
       ev.y <= view->frame.global.y + view->frame.global.h &&
       ev.y >= view->frame.global.y)
   {
-    VADD(queue, view);
+    vec_add_unique_data(queue, view);
     for (int i = 0; i < view->views->length; i++)
     {
       view_t* v = view->views->data[i];
@@ -309,9 +344,11 @@ view_t* view_get_subview(view_t* view, char* id)
 
 void view_evt(view_t* view, ev_t ev)
 {
-  view_t* v;
-  while ((v = VNXT(view->views)))
+  for (int i = 0; i < view->views->length; i++)
+  {
+    view_t* v = view->views->data[i];
     view_evt(v, ev);
+  }
 
   if (view->handler) (*view->handler)(view, ev);
 }
@@ -331,8 +368,11 @@ void view_calc_global(view_t* view)
 
   view->frame.global = frame_global;
 
-  view_t* v;
-  while ((v = VNXT(view->views))) view_calc_global(v);
+  for (int i = 0; i < view->views->length; i++)
+  {
+    view_t* v = view->views->data[i];
+    view_calc_global(v);
+  }
 }
 
 void view_set_frame(view_t* view, r2_t frame)
@@ -369,16 +409,18 @@ void view_set_block_touch(view_t* view, char block, char recursive)
 
   if (recursive)
   {
-    view_t* v;
-    while ((v = VNXT(view->views))) view_set_block_touch(v, block, recursive);
+    for (int i = 0; i < view->views->length; i++)
+    {
+      view_t* v = view->views->data[i];
+      view_set_block_touch(v, block, recursive);
+    }
   }
 }
 
 void view_set_texture_bmp(view_t* view, bm_t* bitmap)
 {
   if (view->texture.bitmap) REL(view->texture.bitmap);
-  RET(bitmap);
-  view->texture.bitmap  = bitmap;
+  view->texture.bitmap  = RET(bitmap);
   view->texture.state   = TS_READY;
   view->texture.changed = 1;
 }
@@ -400,8 +442,11 @@ void view_set_texture_alpha(view_t* view, float alpha, char recur)
 
   if (recur)
   {
-    view_t* v;
-    while ((v = VNXT(view->views))) view_set_texture_alpha(v, alpha, recur);
+    for (int i = 0; i < view->views->length; i++)
+    {
+      view_t* v = view->views->data[i];
+      view_set_texture_alpha(v, alpha, recur);
+    }
   }
 }
 
@@ -418,16 +463,18 @@ void view_gen_texture(view_t* view)
 void view_desc(void* pointer, int level)
 {
   view_t* view = (view_t*)pointer;
-  printf("%*.sid %s frame %.1f %.1f %.1f %.1f tex %i\n", level, " ",
+  printf("%*.sid %s frame %.1f %.1f %.1f %.1f tex %i ret %zx", level, " ",
          view->id,
          view->frame.local.x,
          view->frame.local.y,
          view->frame.local.w,
          view->frame.local.h,
-         view->texture.page);
+         view->texture.page,
+         mem_retaincount(view));
 
   for (int i = 0; i < view->views->length; i++)
   {
+    printf("\n");
     view_desc(view->views->data[i], level + 1);
   }
 }

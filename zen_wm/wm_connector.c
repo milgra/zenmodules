@@ -1,8 +1,6 @@
 /*
   Window Manager Connector Module for Zen Multimedia Desktop System
   Creates window and listens for events
-  
-  Currently it is SDL2
  */
 
 #ifndef wm_connector_h
@@ -10,8 +8,9 @@
 
 #include "wm_event.c"
 
-void wm_init(void (*init)(int, int, char*), void (*update)(ev_t), void (*render)(uint32_t), void (*destroy)());
+void wm_init(void (*init)(int, int, char*), void (*update)(ev_t), void (*render)(uint32_t), void (*destroy)(), char* frame);
 void wm_close();
+void wm_destroy();
 void wm_toggle_fullscreen();
 
 #endif
@@ -36,11 +35,12 @@ SDL_Window* wm_window;
 void wm_init(void (*init)(int, int, char*),
              void (*update)(ev_t),
              void (*render)(uint32_t),
-             void (*destroy)())
+             void (*destroy)(),
+             char* frame)
 {
   SDL_SetHint(SDL_HINT_VIDEO_HIGHDPI_DISABLED, "0");
 
-  if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER) < 0)
+  if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER) < 0) // QUIT 0
   {
     printf("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
   }
@@ -57,11 +57,15 @@ void wm_init(void (*init)(int, int, char*),
     SDL_DisplayMode displaymode;
     SDL_GetCurrentDisplayMode(0, &displaymode);
 
-    int32_t width  = displaymode.w;
-    int32_t height = displaymode.h;
+    int32_t width  = displaymode.w * 0.6;
+    int32_t height = displaymode.h * 0.6;
 
-    width  = 953;
-    height = 1042;
+    if (frame != NULL)
+    {
+      width      = atoi(frame);
+      char* next = strstr(frame, "x");
+      height     = atoi(next + 1);
+    }
 
     wm_window = SDL_CreateWindow("Zen Music",
                                  SDL_WINDOWPOS_UNDEFINED,
@@ -71,7 +75,7 @@ void wm_init(void (*init)(int, int, char*),
                                  SDL_WINDOW_OPENGL |
                                      SDL_WINDOW_SHOWN |
                                      SDL_WINDOW_ALLOW_HIGHDPI |
-                                     SDL_WINDOW_RESIZABLE);
+                                     SDL_WINDOW_RESIZABLE); // DESTROY 0
 
     if (wm_window == NULL)
     {
@@ -81,7 +85,7 @@ void wm_init(void (*init)(int, int, char*),
     {
       printf("SDL Window Init Success\n");
 
-      SDL_GLContext* context = SDL_GL_CreateContext(wm_window);
+      SDL_GLContext* context = SDL_GL_CreateContext(wm_window); // DELETE 0
       if (context == NULL)
       {
         printf("SDL Context could not be created! SDL_Error: %s\n", SDL_GetError());
@@ -101,7 +105,7 @@ void wm_init(void (*init)(int, int, char*),
 
         if (SDL_GL_SetSwapInterval(1) < 0) printf("SDL swap interval error %s\n", SDL_GetError());
 
-        SDL_StartTextInput();
+        SDL_StartTextInput(); // STOP 0
 
         (*init)(width, height, SDL_GetBasePath());
 
@@ -122,12 +126,10 @@ void wm_init(void (*init)(int, int, char*),
 
         while (!wm_quit)
         {
-          ev.type = EV_EMPTY;
           ev.time = SDL_GetTicks();
 
           while (SDL_PollEvent(&event) != 0)
           {
-            ev.type = EV_EMPTY;
             ev.time = SDL_GetTicks();
 
             if (event.type == SDL_MOUSEBUTTONDOWN ||
@@ -146,22 +148,25 @@ void wm_init(void (*init)(int, int, char*),
                 ev.drag   = 1;
                 ev.dclick = 0;
 
-                if (lastclick == 0) lastclick = ev.time;
+                if (lastclick == 0) lastclick = ev.time - 1000;
                 uint32_t delta = ev.time - lastclick;
                 lastclick      = ev.time;
                 if (delta < 500) ev.dclick = 1;
+                (*update)(ev);
               }
               else if (event.type == SDL_MOUSEBUTTONUP)
               {
                 ev.type   = EV_MUP;
                 ev.button = event.button.button;
                 ev.drag   = 0;
+                (*update)(ev);
               }
               else if (event.type == SDL_MOUSEMOTION)
               {
                 ev.dx   = event.motion.xrel;
                 ev.dy   = event.motion.yrel;
                 ev.type = EV_MMOVE;
+                (*update)(ev);
               }
             }
             else if (event.type == SDL_MOUSEWHEEL)
@@ -188,6 +193,7 @@ void wm_init(void (*init)(int, int, char*),
                 ev.type = EV_RESIZE;
                 ev.w    = event.window.data1;
                 ev.h    = event.window.data2;
+                (*update)(ev);
               }
             }
             else if (event.type == SDL_KEYDOWN)
@@ -196,19 +202,30 @@ void wm_init(void (*init)(int, int, char*),
               //printf(", Name: %s\n", SDL_GetKeyName(event.key.keysym.sym));
               ev.type    = EV_KDOWN;
               ev.keycode = event.key.keysym.sym;
+              (*update)(ev);
+            }
+            else if (event.type == SDL_KEYUP)
+            {
+              //printf("Scancode: 0x%02X", event.key.keysym.scancode);
+              //printf(", Name: %s\n", SDL_GetKeyName(event.key.keysym.sym));
+              ev.type    = EV_KUP;
+              ev.keycode = event.key.keysym.sym;
+              (*update)(ev);
             }
             else if (event.type == SDL_TEXTINPUT)
             {
               ev.type = EV_TEXT;
               strcpy(ev.text, event.text.text);
+              (*update)(ev);
             }
             else if (event.type == SDL_TEXTEDITING)
             {
               ev.type = EV_TEXT;
               strcpy(ev.text, event.text.text);
+              (*update)(ev);
             }
-
-            (*update)(ev);
+            else
+              printf("unknown event, sdl type %i\n", event.type);
           }
 
           if (scroll.active)
@@ -246,13 +263,16 @@ void wm_init(void (*init)(int, int, char*),
 
         (*destroy)();
 
-        SDL_StopTextInput();
-        SDL_GL_DeleteContext(context);
+        SDL_StopTextInput();           // STOP 0
+        SDL_GL_DeleteContext(context); // DELETE 0
+
+        printf("SDL Context deleted\n");
       }
     }
 
-    SDL_DestroyWindow(wm_window);
-    SDL_Quit();
+    SDL_DestroyWindow(wm_window); // DESTROY 0
+    SDL_Quit();                   // QUIT 0
+    printf("SDL Window destroyed\n");
   }
 }
 
@@ -261,16 +281,21 @@ void wm_close()
   wm_quit = 1;
 }
 
+void wm_destroy()
+{
+}
+
 void wm_toggle_fullscreen()
 {
-  int flags = SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE;
+  int flags = SDL_GetWindowFlags(wm_window);
 
-  char fullscreen = SDL_GetWindowFlags(wm_window) & SDL_WINDOW_FULLSCREEN;
+  char fullscreen = SDL_GetWindowFlags(wm_window) & SDL_WINDOW_FULLSCREEN_DESKTOP;
+  flags ^= SDL_WINDOW_FULLSCREEN_DESKTOP;
 
   if (fullscreen == 1)
     SDL_SetWindowFullscreen(wm_window, flags);
   else
-    SDL_SetWindowFullscreen(wm_window, flags | SDL_WINDOW_FULLSCREEN);
+    SDL_SetWindowFullscreen(wm_window, flags | SDL_WINDOW_FULLSCREEN_DESKTOP);
 }
 
 #endif

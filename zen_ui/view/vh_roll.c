@@ -56,11 +56,28 @@ void vh_roll_evt(view_t* view, ev_t ev)
   }
 }
 
+void vh_roll_del(void* p)
+{
+  vh_roll_t* vh = p;
+  if (vh->roll_in) REL(vh->roll_in);
+  if (vh->roll_out) REL(vh->roll_out);
+}
+
+void vh_roll_desc(void* p, int level)
+{
+  printf("vh_roll");
+}
+
 void vh_roll_add(view_t* view, cb_t* roll_in, cb_t* roll_out)
 {
-  vh_roll_t* vh = mem_calloc(sizeof(vh_roll_t), "vh_roll", NULL, NULL);
+  assert(view->handler == NULL && view->handler_data == NULL);
+
+  vh_roll_t* vh = CAL(sizeof(vh_roll_t), vh_roll_del, vh_roll_desc);
   vh->roll_in   = roll_in;
   vh->roll_out  = roll_out;
+
+  if (roll_in) RET(roll_in);
+  if (roll_out) RET(roll_out);
 
   view->handler_data = vh;
   view->handler      = vh_roll_evt;

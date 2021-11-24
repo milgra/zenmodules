@@ -28,9 +28,9 @@ void tg_knob_gen(view_t* view)
   {
     if (view->texture.bitmap == NULL && view->frame.local.w > 0 && view->frame.local.h > 0)
     {
-      bm_t* bmp = bm_new(view->frame.local.w, view->frame.local.h);
-      tg->back  = bm_new(view->frame.local.w, view->frame.local.h);
-      tg->fore  = bm_new(view->frame.local.w, view->frame.local.h);
+      bm_t* bmp = bm_new(view->frame.local.w, view->frame.local.h); // REL 0
+      tg->back  = bm_new(view->frame.local.w, view->frame.local.h); // REL 1
+      tg->fore  = bm_new(view->frame.local.w, view->frame.local.h); // REL 2
 
       /* gfx_arc_grad(tg->back, */
       /*              (view->frame.local.w - 1.0) / 2.0, */
@@ -93,6 +93,7 @@ void tg_knob_gen(view_t* view)
                    0xFFFFFFFF);
 
       view_set_texture_bmp(view, bmp);
+      REL(bmp); // REL 0
     }
 
     if (tg->angle < 0) tg->angle += 6.28;
@@ -140,9 +141,23 @@ void tg_knob_gen(view_t* view)
   }
 }
 
+void tg_knob_del(void* p)
+{
+  tg_knob_t* tg = p;
+  if (tg->back) REL(tg->back);
+  if (tg->fore) REL(tg->fore);
+}
+
+void tg_knob_desc(void* p, int level)
+{
+  printf("tg_knob");
+}
+
 void tg_knob_add(view_t* view)
 {
-  tg_knob_t* tg = mem_calloc(sizeof(tg_knob_t), "tg_knob", NULL, NULL);
+  assert(view->tex_gen == NULL);
+
+  tg_knob_t* tg = CAL(sizeof(tg_knob_t), tg_knob_del, tg_knob_desc);
   tg->angle     = 3 * 3.14 / 2;
 
   view->tex_gen_data = tg;

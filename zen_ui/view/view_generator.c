@@ -19,8 +19,9 @@ vec_t* view_gen_load(char* htmlpath, char* csspath, char* respath, map_t* callba
 
 void view_gen_apply_style(view_t* view, map_t* style, char* respath)
 {
-  vec_t* keys = VNEW();
+  vec_t* keys = VNEW(); // REL 0
   map_keys(style, keys);
+
   for (int index = 0; index < keys->length; index++)
   {
     char* key = keys->data[index];
@@ -36,11 +37,11 @@ void view_gen_apply_style(view_t* view, map_t* style, char* respath)
     {
       if (strstr(val, "url") != NULL)
       {
-        char* url = mem_calloc(sizeof(char) * strlen(val), "char*", NULL, NULL);
+        char* url = CAL(sizeof(char) * strlen(val), NULL, cstr_describe); // REL 0
         memcpy(url, val + 5, strlen(val) - 7);
-        char* imagepath               = cstr_fromformat(100, "%s/%s", respath, url);
+        char* imagepath               = cstr_new_format(100, "%s/%s", respath, url);
         view->layout.background_image = imagepath;
-        REL(url);
+        REL(url); // REL 0
         tg_css_add(view);
       }
     }
@@ -213,36 +214,42 @@ void view_gen_apply_style(view_t* view, map_t* style, char* respath)
   /* printf("layout for %s: ", view->id); */
   /* view_desc_layout(view->layout); */
   /* printf("\n"); */
+
+  REL(keys);
 }
 
 vec_t* view_gen_load(char* htmlpath, char* csspath, char* respath, map_t* callbacks)
 {
-  char* html = html_read(htmlpath);
-  char* css  = html_read(csspath);
+  char* html = html_new_read(htmlpath); // REL 0
+  char* css  = html_new_read(csspath);  // REL 1
 
-  tag_t*  view_structure = html_parse_html(html);
-  prop_t* view_styles    = html_parse_css(css);
+  tag_t*  view_structure = html_new_parse_html(html); // REL 2
+  prop_t* view_styles    = html_new_parse_css(css);   // REL 3
 
   // create style map
-  map_t*  styles = MNEW();
+  map_t*  styles = MNEW(); // REL 4
   prop_t* props  = view_styles;
   while ((*props).class.len > 0)
   {
     prop_t t   = *props;
-    char*  cls = mem_calloc(sizeof(char) * t.class.len + 1, "char*", NULL, cstr_describe);
-    char*  key = mem_calloc(sizeof(char) * t.key.len + 1, "char*", NULL, cstr_describe);
-    char*  val = mem_calloc(sizeof(char) * t.value.len + 1, "char*", NULL, cstr_describe);
+    char*  cls = CAL(sizeof(char) * t.class.len + 1, NULL, cstr_describe); // REL 5
+    char*  key = CAL(sizeof(char) * t.key.len + 1, NULL, cstr_describe);   // REL 6
+    char*  val = CAL(sizeof(char) * t.value.len + 1, NULL, cstr_describe); // REL 7
     memcpy(cls, css + t.class.pos, t.class.len);
     memcpy(key, css + t.key.pos, t.key.len);
     memcpy(val, css + t.value.pos, t.value.len);
     map_t* style = MGET(styles, cls);
     if (style == NULL)
     {
-      style = MNEW();
+      style = MNEW(); // REL 8
       MPUT(styles, cls, style);
+      REL(style); // REL 8
     }
     MPUT(style, key, val);
     props += 1;
+    REL(cls); // REL 5
+    REL(key); // REL 6
+    REL(val); // REL 7
   }
 
   // create view structure
@@ -253,15 +260,19 @@ vec_t* view_gen_load(char* htmlpath, char* csspath, char* respath, map_t* callba
     tag_t t = *tags;
     if (t.id.len > 0)
     {
-      char* id = mem_calloc(sizeof(char) * t.id.len + 1, "char*", NULL, NULL);
+      char* id = CAL(sizeof(char) * t.id.len + 1, NULL, cstr_describe); // REL 0
+
       memcpy(id, html + t.id.pos + 1, t.id.len);
-      view_t* view = view_new(id, (r2_t){0});
+
+      view_t* view = view_new(id, (r2_t){0}); // REL 1
+
       VADD(views, view);
+
       if (t.level > 0) // add view to paernt
       {
         view_t* parent = views->data[t.parent];
         //printf("parent %i %i\n", t.parent, views->length);
-        view_add(parent, view);
+        view_add_subview(parent, view);
       }
 
       char cssid[100] = {0};
@@ -275,7 +286,7 @@ vec_t* view_gen_load(char* htmlpath, char* csspath, char* respath, map_t* callba
 
       if (t.class.len > 0)
       {
-        char* class = mem_calloc(sizeof(char) * t.class.len + 1, "char*", NULL, NULL);
+        char* class = CAL(sizeof(char) * t.class.len + 1, NULL, cstr_describe); // REL 0
         memcpy(class, html + t.class.pos + 1, t.class.len);
 
         char csscls[100] = {0};
@@ -286,42 +297,64 @@ vec_t* view_gen_load(char* htmlpath, char* csspath, char* respath, map_t* callba
         {
           view_gen_apply_style(view, style, respath);
         }
+        REL(class);
       }
 
       if (t.type.len > 0)
       {
-        char* type = mem_calloc(sizeof(char) * t.type.len + 1, "char*", NULL, NULL);
+        char* type = CAL(sizeof(char) * t.type.len + 1, NULL, cstr_describe); // REL 2
         memcpy(type, html + t.type.pos + 1, t.type.len);
 
         // TODO remove non-standard types
         if (strcmp(type, "button") == 0 && t.onclick.len > 0)
         {
-          char* onclick = mem_calloc(sizeof(char) * t.onclick.len + 1, "char*", NULL, NULL);
+          char* onclick = CAL(sizeof(char) * t.onclick.len + 1, NULL, cstr_describe); // REL 3
           memcpy(onclick, html + t.onclick.pos + 1, t.onclick.len);
 
           cb_t* callback = MGET(callbacks, onclick);
-          if (callback) vh_button_add(view, VH_BUTTON_NORMAL, callback);
+          if (callback)
+          {
+            vh_button_add(view, VH_BUTTON_NORMAL, callback);
+          }
+          REL(onclick); // REL 4
         }
         else if (strcmp(type, "checkbox") == 0 && t.onclick.len > 0)
         {
-          char* onclick = mem_calloc(sizeof(char) * t.onclick.len + 1, "char*", NULL, NULL);
+          char* onclick = CAL(sizeof(char) * t.onclick.len + 1, NULL, cstr_describe); // REL 5
           memcpy(onclick, html + t.onclick.pos + 1, t.onclick.len);
 
           cb_t* callback = MGET(callbacks, onclick);
           if (callback) vh_button_add(view, VH_BUTTON_TOGGLE, callback);
+
+          REL(onclick); // REL 5
         }
+        REL(type); // REL 2
       }
 
-      REL(id);
+      REL(id);   // REL 0
+      REL(view); // REL 1
     }
     else
     {
+      static int divcnt = 0;
+      char*      divid  = cstr_new_format(10, "div%i", divcnt++);
       // idless view, probably </div>
-      view_t* view = view_new("", (r2_t){0});
+      view_t* view = view_new(divid, (r2_t){0});
       VADD(views, view);
+      REL(view);
+      REL(divid);
     }
     tags += 1;
   }
+
+  // cleanup
+
+  REL(view_structure); // REL 2
+  REL(view_styles);    // REL 3
+  REL(styles);         // REL 4
+
+  REL(html); // REL 0
+  REL(css);  // REL 1
 
   return views;
 }

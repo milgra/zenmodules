@@ -5,14 +5,14 @@
 
 #include "vh_list_cell.c"
 #include "view.c"
+#include "view_layout.c"
 #include "zc_cstring.c"
 #include "zc_map.c"
 #include "zc_vector.c"
 
 typedef struct _vh_lhead_t
 {
-  vec_t*  cells;
-  view_t* view;
+  vec_t* cells;
 
   vh_lcell_t* dragged_cell;
   int         dragged_pos;
@@ -47,9 +47,16 @@ void vh_lhead_evt(view_t* view, ev_t ev);
 void vh_lhead_del(void* p);
 void vh_lhead_resize(view_t* view);
 
+void vh_lhead_desc(void* p, int level)
+{
+  printf("vh_lhead");
+}
+
 void vh_lhead_add(view_t* view)
 {
-  vh_lhead_t* vh = mem_calloc(sizeof(vh_lhead_t), "vh_lhead_t", vh_lhead_del, NULL);
+  assert(view->handler == NULL && view->handler_data == NULL);
+
+  vh_lhead_t* vh = CAL(sizeof(vh_lhead_t), vh_lhead_del, vh_lhead_desc);
   vh->cells      = VNEW();
 
   view->handler_data = vh;
@@ -102,8 +109,8 @@ void vh_lhead_evt(view_t* view, ev_t ev)
           vh->dragged_pos  = ev.x - f.x;
           vh->dragged_ind  = i;
         }
-        view_remove(view, cell->view);
-        view_add(view, cell->view);
+        view_remove_from_parent(cell->view);
+        view_add_subview(view, cell->view);
         break;
       }
     }
@@ -182,6 +189,7 @@ void vh_lhead_resize(view_t* view)
   vframe.w           = lframe.x + lframe.w;
 
   view_set_frame(view, vframe);
+  view_layout(view);
 }
 
 // cell handling
@@ -189,13 +197,13 @@ void vh_lhead_resize(view_t* view)
 void vh_lhead_add_cell(view_t* view, char* id, int size, view_t* cellview)
 {
   vh_lhead_t* vh   = view->handler_data;
-  vh_lcell_t* cell = vh_lcell_new(id, size, cellview, vh->cells->length);
+  vh_lcell_t* cell = vh_lcell_new(id, size, cellview, vh->cells->length); // REL 0
 
   // disable touch to enable mouse events
   cellview->needs_touch = 0;
 
   // add subview
-  view_add(view, cellview);
+  view_add_subview(view, cellview);
 
   // store cell
   VADD(vh->cells, cell);
@@ -203,6 +211,8 @@ void vh_lhead_add_cell(view_t* view, char* id, int size, view_t* cellview)
   // arrange and resize
   vh_lcell_arrange(vh->cells);
   vh_lhead_resize(view);
+
+  REL(cell);
 }
 
 view_t* vh_lhead_get_cell(view_t* view, char* id)

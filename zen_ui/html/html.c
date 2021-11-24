@@ -35,17 +35,17 @@ typedef struct _prop_t
   range_t value;
 } prop_t;
 
-char*   html_read(char* path);
-tag_t*  html_parse_html(char* path);
-prop_t* html_parse_css(char* path);
+char*   html_new_read(char* path);
+tag_t*  html_new_parse_html(char* path);
+prop_t* html_new_parse_css(char* path);
 
 #endif
 
 #if __INCLUDE_LEVEL__ == 0
 
-char* html_read(char* path)
+char* html_new_read(char* path)
 {
-  FILE* f = fopen(path, "rb");
+  FILE* f = fopen(path, "rb"); // CLOSE 0
 
   if (f)
   {
@@ -54,10 +54,10 @@ char* html_read(char* path)
     long fsize = ftell(f);
     fseek(f, 0, SEEK_SET);
 
-    char* string = mem_alloc(fsize + 1, "char*", NULL, cstr_describe);
+    char* string = CAL(fsize + 1, NULL, cstr_describe); // REL 0
 
     fread(string, 1, fsize, f);
-    fclose(f);
+    fclose(f); // CLOSE 0
 
     string[fsize] = 0;
 
@@ -173,10 +173,15 @@ void analyze_tags(char* html, tag_t* tags, uint32_t count)
   }
 }
 
-tag_t* html_parse_html(char* html)
+void tag_describe(void* p, int level)
+{
+  printf("html tag_t");
+}
+
+tag_t* html_new_parse_html(char* html)
 {
   uint32_t cnt  = count_tags(html);
-  tag_t*   tags = mem_calloc(sizeof(tag_t) * (cnt + 1), "tag_t*", NULL, NULL);
+  tag_t*   tags = CAL(sizeof(tag_t) * (cnt + 1), NULL, tag_describe); // REL 0
 
   extract_tags(html, tags);
   analyze_tags(html, tags, cnt);
@@ -244,11 +249,15 @@ void analyze_classes(char* css, prop_t* props)
   }
 }
 
-prop_t* html_parse_css(char* css)
+void prop_desc(void* p, int level)
 {
-  map_t*   map   = map_alloc();
+  printf("html prop_t");
+}
+
+prop_t* html_new_parse_css(char* css)
+{
   uint32_t cnt   = count_props(css);
-  prop_t*  props = mem_calloc(sizeof(prop_t) * (cnt + 1), "prop_t*", NULL, NULL);
+  prop_t*  props = CAL(sizeof(prop_t) * (cnt + 1), NULL, prop_desc); // REL 1
 
   analyze_classes(css, props);
 

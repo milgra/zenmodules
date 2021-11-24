@@ -10,9 +10,9 @@ typedef union
   uint32_t uint32v;
 } num_t;
 
-num_t* num_newfloat(float val);
-num_t* num_newint(int val);
-num_t* num_newuint32(uint32_t val);
+num_t* num_new_float(float val);
+num_t* num_new_int(int val);
+num_t* num_new_uint32(uint32_t val);
 
 #endif
 
@@ -20,23 +20,29 @@ num_t* num_newuint32(uint32_t val);
 
 #include "zc_memory.c"
 
-num_t* num_newfloat(float val)
+void num_describe(void* p, int level)
 {
-  num_t* res  = mem_calloc(sizeof(num_t), "num_t", NULL, NULL);
+  num_t* num = p;
+  printf("num %f %i %u", num->floatv, num->intv, num->uint32v);
+}
+
+num_t* num_new_float(float val)
+{
+  num_t* res  = CAL(sizeof(num_t), NULL, num_describe);
   res->floatv = val;
   return res;
 }
 
-num_t* num_newint(int val)
+num_t* num_new_int(int val)
 {
-  num_t* res = mem_calloc(sizeof(num_t), "num_t", NULL, NULL);
+  num_t* res = CAL(sizeof(num_t), NULL, num_describe);
   res->intv  = val;
   return res;
 }
 
-num_t* num_newuint32(uint32_t val)
+num_t* num_new_uint32(uint32_t val)
 {
-  num_t* res   = mem_calloc(sizeof(num_t), "num_t", NULL, NULL);
+  num_t* res   = CAL(sizeof(num_t), NULL, num_describe);
   res->uint32v = val;
   return res;
 }

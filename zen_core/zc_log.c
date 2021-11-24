@@ -10,6 +10,7 @@ void log_set_proxy(void (*proxy)(char*));
 
 #if __INCLUDE_LEVEL__ == 0
 
+#include "zc_cstring.c"
 #include "zc_vector.c"
 
 #define LOG_SIZE 400
@@ -27,12 +28,14 @@ void log_set_proxy(void (*proxy)(char*))
 void log_log(char* fmt, ...)
 {
   va_list arglist;
-  char*   str = mem_calloc(LOG_SIZE, "char*", NULL, NULL);
+  char*   str = CAL(LOG_SIZE, NULL, cstr_describe);
   va_start(arglist, fmt);
   vsnprintf(str, LOG_SIZE, fmt, arglist);
   va_end(arglist);
 
+#ifdef DEBUG
   printf("LOG %s\n", str);
+#endif
 
   if (zc_log.proxy != NULL) (*zc_log.proxy)(str);
 

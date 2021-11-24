@@ -2,7 +2,7 @@
 #define vh_anim_h
 
 #include "view.c"
-#include "zc_math2.c"
+#include "zm_math2.c"
 
 typedef enum _animtype_t
 {
@@ -265,9 +265,16 @@ void vh_anim_finish(view_t* view)
   vh->anim_alpha  = 0;
 }
 
+void vh_anim_desc(void* p, int level)
+{
+  printf("vh_anim");
+}
+
 void vh_anim_add(view_t* view)
 {
-  vh_anim_t* vh = mem_calloc(sizeof(vh_anim_t), "vh_anim", NULL, NULL);
+  assert(view->handler == NULL && view->handler_data == NULL);
+
+  vh_anim_t* vh = CAL(sizeof(vh_anim_t), NULL, vh_anim_desc);
 
   view->handler      = vh_anim_evt;
   view->handler_data = vh;

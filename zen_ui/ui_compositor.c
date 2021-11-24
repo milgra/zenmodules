@@ -14,12 +14,14 @@
 
 #include "gl_connector.c"
 #include "zc_bitmap.c"
-#include "zc_math2.c"
+#include "zm_math2.c"
 
 void ui_compositor_init();
+void ui_compositor_destroy();
 
 void ui_compositor_reset_texmap(int size);
 void ui_compositor_new_texture(int page, int width, int height);
+void ui_compositor_rel_texture(int page);
 void ui_compositor_resize_texture(int page, int width, int height);
 
 void ui_compositor_rewind();
@@ -50,9 +52,9 @@ void ui_compositor_render_to_bmp(bm_t* bitmap);
 #include "gl_floatbuffer.c"
 #include "zc_cstring.c"
 #include "zc_map.c"
-#include "zc_math4.c"
 #include "zc_texmap.c"
 #include "zc_vector.c"
+#include "zm_math4.c"
 
 typedef struct _crect_t
 {
@@ -63,7 +65,7 @@ typedef struct _crect_t
 } crect_t;
 
 void crect_del(void* rect);
-void crect_desc(crect_t* rect);
+void crect_desc(void* p, int level);
 void crect_set_id(crect_t* rect, char* id);
 void crect_set_masked(crect_t* r, char masked);
 void crect_set_page(crect_t* rect, uint32_t page);
@@ -90,36 +92,45 @@ void ui_compositor_init()
 {
   gl_init();
 
-  uic.fb = fb_new();
-
-  uic.cache     = VNEW();
+  uic.fb        = fb_new(); // REL 0
+  uic.cache     = VNEW();   // REL 1
   uic.cache_ind = 0;
   uic.upd_geo   = 1;
 }
 
+void ui_compositor_destroy()
+{
+  REL(uic.fb);
+  REL(uic.cache);
+  if (uic.tm) REL(uic.tm);
+
+  gl_destroy();
+}
+
 void ui_compositor_rewind()
 {
-  // printf("ui_compositor_rewind\n");
   uic.cache_ind = 0;
 }
 
 void ui_compositor_reset_texmap(int size)
 {
-  printf("ui_compositor_new_texmap %i\n", size);
   if (uic.tm) REL(uic.tm);
-  uic.tm = tm_new(size, size);
+  uic.tm = tm_new(size, size); // REL 2
 }
 
 void ui_compositor_new_texture(int page, int width, int height)
 {
-  printf("ui_compositor_new_texture %i %i %i\n", page, width, height);
-  gl_new_texture(page, width, height); // texture for texmap
+  gl_new_texture(page, width, height);
+}
+
+void ui_compositor_rel_texture(int page)
+{
+  gl_rel_texture(page);
 }
 
 void ui_compositor_resize_texture(int page, int width, int height)
 {
-  printf("ui_compositor_resize_texture %i %i %i\n", page, width, height);
-  gl_del_texture(page);
+  gl_rel_texture(page);
   gl_new_texture(page, width, height);
 }
 
@@ -139,8 +150,9 @@ void ui_compositor_add(char* id,
   // fill up cache if needed
   if (uic.cache_ind + 1 > uic.cache->length)
   {
-    crect_t* rect = mem_calloc(sizeof(crect_t), "crect_t", crect_del, NULL);
+    crect_t* rect = CAL(sizeof(crect_t), crect_del, crect_desc); // REL 0
     VADD(uic.cache, rect);
+    REL(rect); // REL 0
   }
   // get cached rect
   crect_t* rect = uic.cache->data[uic.cache_ind];
@@ -481,7 +493,8 @@ void crect_del(void* pointer)
 
 void crect_set_id(crect_t* r, char* id)
 {
-  r->id = id;
+  if (r->id) REL(r->id);
+  r->id = RET(id);
 }
 
 void crect_set_masked(crect_t* r, char masked)
@@ -553,14 +566,15 @@ void crect_set_alpha(crect_t* r, float alpha)
   r->data[35] = alpha;
 }
 
-void crect_desc(crect_t* r)
+void crect_desc(void* p, int level)
 {
+  printf("crect\n");
+  crect_t* r = p;
   for (int index = 0; index < 30; index++)
   {
     if (index % 5 == 0) printf("\n");
     printf("%f ", r->data[index]);
   }
-  printf("\n");
 }
 
 #endif

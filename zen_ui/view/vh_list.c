@@ -28,9 +28,10 @@ typedef struct _vh_list_t
 
   char lock_scroll;
 
-  float item_wth; // width of all items
-  float item_pos; // horizontal position of all items
-  float head_pos; // vertical position of head ( for refresh )
+  float item_wth;     // width of all items
+  float item_pos;     // horizontal position of all items
+  float item_tgt_pos; // target item pos for animated horizontal scrol
+  float head_pos;     // vertical position of head ( for refresh )
 
   // scrollers
 
@@ -44,13 +45,13 @@ typedef struct _vh_list_t
   uint32_t htimeout; // horizontal scroller timeout
 
   view_t* (*item_for_index)(int index, void* userdata, view_t* listview, int* item_count);
-  void (*item_recycle)(view_t* item);
+  void (*item_recycle)(view_t* item, void* userdata, view_t* listview);
 } vh_list_t;
 
 void    vh_list_add(view_t*         view,
                     vh_list_inset_t inset,
                     view_t* (*item_for_index)(int index, void* userdata, view_t* listview, int* item_count),
-                    void (*item_recycle)(view_t* item),
+                    void (*item_recycle)(view_t* item, void* userdata, view_t* listview),
                     void* userdata);
 void    vh_list_set_header(view_t* view, view_t* headerview);
 vec_t*  vh_list_items(view_t* view);
@@ -61,6 +62,8 @@ void    vh_list_refresh(view_t* view);
 view_t* vh_list_item_for_index(view_t* view, int index);
 void    vh_list_lock_scroll(view_t* view, char state);
 void    vh_list_scroll_to_index(view_t* view, int index);
+void    vh_list_scroll_to_x_poisiton(view_t* view, float position);
+void    vh_list_set_item_width(view_t* view, float width);
 
 #endif
 
@@ -72,6 +75,8 @@ void    vh_list_scroll_to_index(view_t* view, int index);
 #include "vh_sbar.c"
 #include "zc_cstring.c"
 #include "zc_string.c"
+#include <float.h>
+#include <limits.h>
 #include <math.h>
 
 #define PRELOAD_DISTANCE 100.0
@@ -169,9 +174,14 @@ void vh_list_evt(view_t* view, ev_t ev)
 
         if (item)
         {
-          VADD(vh->items, item);
-
-          view_insert(view, item, 0);
+          uint32_t index = vec_index_of_data(vh->items, item);
+          if (index == UINT32_MAX)
+          {
+            VADD(vh->items, item);
+            view_insert_subview(view, item, 0);
+          }
+          else
+            printf("VH LIST EMPTY : ITEM ALREADY IN ITEMS %s %i\n", item->id, vh->head_index);
 
           view_set_frame(item, (r2_t){0, vh->head_pos, item->frame.local.w, item->frame.local.h});
 
@@ -193,9 +203,15 @@ void vh_list_evt(view_t* view, ev_t ev)
 
           if (item)
           {
-            vec_ins(vh->items, item, 0);
+            uint32_t index = vec_index_of_data(vh->items, item);
 
-            view_insert(view, item, 0);
+            if (index == UINT32_MAX)
+            {
+              vec_ins(vh->items, item, 0);
+              view_insert_subview(view, item, 0);
+            }
+            else
+              printf("VH LIST TOP : ITEM ALREADY IN ITEMS %s index %i\n", item->id, vh->head_index - 1);
 
             vh->full     = 0;                    // there is probably more to come
             vh->item_wth = item->frame.global.w; // store maximum width
@@ -219,9 +235,15 @@ void vh_list_evt(view_t* view, ev_t ev)
 
           if (item)
           {
-            VADD(vh->items, item);
+            uint32_t index = vec_index_of_data(vh->items, item);
 
-            view_insert(view, item, 0);
+            if (index == UINT32_MAX)
+            {
+              VADD(vh->items, item);
+              view_insert_subview(view, item, 0);
+            }
+            else
+              printf("VH LIST BOTTOM : ITEM ALREADY IN ITEMS %s index %i\n", item->id, vh->tail_index + 1);
 
             vh->full     = 0;                    // there is probably more to come
             vh->item_wth = item->frame.global.w; // store maximum width
@@ -247,15 +269,15 @@ void vh_list_evt(view_t* view, ev_t ev)
           {
             VREM(vh->items, head);
             vh->head_index += 1;
-            view_remove(view, head);
-            if (vh->item_recycle) (*vh->item_recycle)(head);
+            view_remove_from_parent(head);
+            if (vh->item_recycle) (*vh->item_recycle)(head, vh->userdata, view);
           }
           if (tail->frame.local.y > view->frame.local.h + PRELOAD_DISTANCE && vh->items->length > 1)
           {
             VREM(vh->items, tail);
             vh->tail_index -= 1;
-            view_remove(view, tail);
-            if (vh->item_recycle) (*vh->item_recycle)(tail);
+            view_remove_from_parent(tail);
+            if (vh->item_recycle) (*vh->item_recycle)(tail, vh->userdata, view);
           }
         }
       }
@@ -266,23 +288,39 @@ void vh_list_evt(view_t* view, ev_t ev)
       view_t* head = vec_head(vh->items);
       view_t* tail = vec_tail(vh->items);
 
+      char move = 0;
       // horizontal bounce
 
-      if (vh->item_pos > 0.0001)
+      if (vh->item_pos > 0.0001) // left overflow
       {
         vh->item_pos += -vh->item_pos / 5.0;
+        move = 1;
       }
-      else if (vh->item_pos + vh->item_wth < view->frame.local.w - vh->inset.r)
+      else if (vh->item_pos + vh->item_wth < view->frame.local.w - vh->inset.r) // right overflow
       {
         if (vh->item_wth > view->frame.local.w - vh->inset.r)
         {
           vh->item_pos += (view->frame.local.w - vh->inset.r - vh->item_wth - vh->item_pos) / 5.0;
+          move = 1;
         }
         else if (vh->item_pos < -0.0001)
         {
           vh->item_pos += -vh->item_pos / 5.0;
+          move = 1;
         }
       }
+      else if (vh->item_tgt_pos != FLT_MAX)
+      {
+        if (vh->item_tgt_pos < vh->item_pos - 0.0001 || vh->item_tgt_pos > vh->item_pos + 0.0001)
+        {
+          vh->item_pos += (vh->item_tgt_pos - vh->item_pos) / 4;
+          move = 1;
+        }
+        else
+          vh->item_tgt_pos = FLT_MAX;
+      }
+
+      if (move) vh_list_move(view, 0);
 
       // vertical bounce
 
@@ -300,10 +338,6 @@ void vh_list_evt(view_t* view, ev_t ev)
         {
           vh_list_move(view, -head->frame.local.y / 5.0);
         }
-      }
-      else if (vh->item_pos > 0.001 || vh->item_pos < -0.0001)
-      {
-        vh_list_move(view, 0);
       }
     }
     // close scrollbars
@@ -365,12 +399,6 @@ void vh_list_evt(view_t* view, ev_t ev)
   }
 }
 
-void vh_list_del(void* p)
-{
-  vh_list_t* vh = (vh_list_t*)p;
-  REL(vh->items);
-}
-
 vec_t* vh_list_items(view_t* view)
 {
   vh_list_t* vh = view->handler_data;
@@ -424,6 +452,21 @@ void vh_list_scroll_to_index(view_t* view, int index)
   }
 }
 
+void vh_list_scroll_to_x_poisiton(view_t* view, float position)
+{
+  vh_list_t* vh = view->handler_data;
+
+  if (position > 0) position = 0;
+  vh->item_tgt_pos = position;
+  vh_list_move(view, 0);
+}
+
+void vh_list_set_item_width(view_t* view, float width)
+{
+  vh_list_t* vh = view->handler_data;
+  vh->item_wth  = width;
+}
+
 void vh_list_reset(view_t* view)
 {
   vh_list_t* vh = view->handler_data;
@@ -431,8 +474,8 @@ void vh_list_reset(view_t* view)
   for (int index = 0; index < vh->items->length; index++)
   {
     view_t* item = vh->items->data[index];
-    view_remove(view, item);
-    if (vh->item_recycle) (*vh->item_recycle)(item);
+    view_remove_from_parent(item);
+    if (vh->item_recycle) (*vh->item_recycle)(item, vh->userdata, view);
   }
 
   vec_reset(vh->items);
@@ -451,8 +494,8 @@ void vh_list_refresh(view_t* view)
   {
     view_t* item = vh->items->data[index];
     if (index == 0) vh->head_pos = item->frame.local.y;
-    view_remove(view, item);
-    if (vh->item_recycle) (*vh->item_recycle)(item);
+    view_remove_from_parent(item);
+    if (vh->item_recycle) (*vh->item_recycle)(item, vh->userdata, view);
   }
 
   vec_reset(vh->items);
@@ -461,24 +504,38 @@ void vh_list_refresh(view_t* view)
   vh->tail_index = vh->head_index;
 }
 
+void vh_list_del(void* p)
+{
+  vh_list_t* vh = p;
+  REL(vh->items);
+}
+
+void vh_list_desc(void* p, int level)
+{
+  printf("vh_list");
+}
+
 void vh_list_add(view_t*         view,
                  vh_list_inset_t inset,
                  view_t* (*item_for_index)(int index, void* userdata, view_t* listview, int* item_count),
-                 void (*item_recycle)(view_t* item),
+                 void (*item_recycle)(view_t* item, void* userdata, view_t* listview),
                  void* userdata)
 {
-  vh_list_t* vh      = mem_calloc(sizeof(vh_list_t), "vh_list", vh_list_del, NULL);
+  assert(view->handler == NULL && view->handler_data == NULL);
+
+  vh_list_t* vh      = CAL(sizeof(vh_list_t), vh_list_del, vh_list_desc);
   vh->userdata       = userdata;
-  vh->items          = VNEW();
+  vh->items          = VNEW(); // REL 0
   vh->item_for_index = item_for_index;
   vh->item_recycle   = item_recycle;
   vh->inset          = inset;
+  vh->item_tgt_pos   = FLT_MAX;
 
-  char* vid = cstr_fromformat(100, "%s%s", view->id, "vscr");
-  char* hid = cstr_fromformat(100, "%s%s", view->id, "hscr");
+  char* vid = cstr_new_format(100, "%s%s", view->id, "vscr");
+  char* hid = cstr_new_format(100, "%s%s", view->id, "hscr");
 
-  view_t* vscr = view_new(vid, (r2_t){view->frame.local.w - 11, 0, 11, view->frame.local.h});
-  view_t* hscr = view_new(hid, (r2_t){0, view->frame.local.h - 11, view->frame.local.w, 11});
+  view_t* vscr = view_new(vid, (r2_t){view->frame.local.w - 21, 0, 21, view->frame.local.h}); // REL 1
+  view_t* hscr = view_new(hid, (r2_t){0, view->frame.local.h - 21, view->frame.local.w, 21}); // REL 2
 
   REL(vid);
   REL(hid);
@@ -494,11 +551,11 @@ void vh_list_add(view_t*         view,
   tg_css_add(vscr);
   tg_css_add(hscr);
 
-  vh_sbar_add(vscr, SBAR_V, 30, vh_list_scroll_v, view);
-  vh_sbar_add(hscr, SBAR_H, 30, vh_list_scroll_h, view);
+  vh_sbar_add(vscr, SBAR_V, 30, 10, vh_list_scroll_v, view);
+  vh_sbar_add(hscr, SBAR_H, 30, 10, vh_list_scroll_h, view);
 
-  view_add(view, vscr);
-  view_add(view, hscr);
+  view_add_subview(view, vscr);
+  view_add_subview(view, hscr);
 
   vh->vscr = vscr;
   vh->hscr = hscr;
@@ -507,6 +564,9 @@ void vh_list_add(view_t*         view,
   view->handler      = vh_list_evt;
 
   view->blocks_scroll = 1;
+
+  REL(vh->vscr);
+  REL(vh->hscr);
 }
 
 view_t* vh_list_item_for_index(view_t* view, int index)
@@ -526,16 +586,11 @@ void vh_list_set_header(view_t* view, view_t* headerview)
 {
   vh_list_t* vh = view->handler_data;
 
-  if (vh->header != NULL)
-  {
-    view_remove(view, vh->header);
-    REL(vh->header);
-  }
-  RET(headerview);
+  if (vh->header != NULL) view_remove_from_parent(vh->header);
   vh->header = headerview;
 
   // add as subview before scrollers
-  view_insert(view, headerview, 0);
+  view_insert_subview(view, headerview, 0);
 
   vh->head_pos = headerview->frame.local.h;
 }

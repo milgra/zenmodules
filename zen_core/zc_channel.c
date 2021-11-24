@@ -42,16 +42,32 @@ void ch_del(void* pointer)
 
   ch_t* ch = pointer;
 
-  mem_release(ch->flags);
-  mem_release(ch->boxes);
+  REL(ch->flags);
+  REL(ch->boxes);
+}
+
+void ch_describe(void* p, int level)
+{
+  ch_t* ch = p;
+  printf("zc_channel");
+}
+
+void ch_describe_flags(void* p, int level)
+{
+  printf("zc_channel flags");
+}
+
+void ch_describe_boxes(void* p, int level)
+{
+  printf("zc_channel boxes");
 }
 
 ch_t* ch_new(uint32_t size)
 {
-  ch_t* ch = mem_calloc(sizeof(ch_t), "zc_channel", ch_del, NULL);
+  ch_t* ch = CAL(sizeof(ch_t), ch_del, ch_describe);
 
-  ch->flags = mem_calloc(sizeof(char) * size, "char*", NULL, NULL);
-  ch->boxes = mem_calloc(sizeof(void*) * size, "void**", NULL, NULL);
+  ch->flags = CAL(sizeof(char) * size, NULL, ch_describe_flags);
+  ch->boxes = CAL(sizeof(void*) * size, NULL, ch_describe_boxes);
   ch->size  = size;
   ch->rpos  = 0;
   ch->wpos  = 0;
@@ -110,11 +126,11 @@ void send_test(ch_t* ch)
   uint32_t counter = 0;
   while (1)
   {
-    uint32_t* number = mem_calloc(sizeof(uint32_t), "uint32_t", NULL, NULL);
+    uint32_t* number = CAL(sizeof(uint32_t), NULL, NULL);
     *number          = counter;
     char success     = ch_send(ch, number);
     if (success == 0)
-      mem_release(number);
+      REL(number);
     else
       counter += 1;
     if (counter == UINT32_MAX - 1)
@@ -136,7 +152,7 @@ void recv_test(ch_t* ch)
     {
       if (*number != last)
         printf("index error!!!");
-      mem_release(number);
+      REL(number);
       last += 1;
       if (last == UINT32_MAX - 1)
         last = 0;
@@ -154,7 +170,7 @@ ch_t** testarray;
 
 void ch_test()
 {
-  testarray = mem_calloc(sizeof(ch_t) * kChTestThreads, "ch_t**", NULL, NULL);
+  testarray = CAL(sizeof(ch_t) * kChTestThreads, NULL, NULL);
 
   for (int index = 0; index < kChTestThreads; index++)
   {

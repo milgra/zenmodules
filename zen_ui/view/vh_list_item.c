@@ -37,11 +37,19 @@ void    vh_litem_upd_cell_size(view_t* view, char* id, int size);
 void vh_litem_evt(view_t* view, ev_t ev);
 void vh_litem_del(void* p);
 
+void vh_litem_desc(void* p, int level)
+{
+  printf("vh_litem");
+}
+
 void vh_litem_add(view_t* view, void* userdata)
 {
-  vh_litem_t* vh = mem_calloc(sizeof(vh_litem_t), "vh_litem_t", vh_litem_del, NULL);
+  assert(view->handler == NULL && view->handler_data == NULL);
+
+  vh_litem_t* vh = CAL(sizeof(vh_litem_t), vh_litem_del, vh_litem_desc);
   vh->cells      = VNEW();
   vh->userdata   = userdata;
+  vh->view       = view;
 
   view->handler_data = vh;
   view->handler      = vh_litem_evt;
@@ -101,12 +109,12 @@ void vh_litem_resize(view_t* view)
 void vh_litem_add_cell(view_t* view, char* id, int size, view_t* cellview)
 {
   vh_litem_t* vh   = view->handler_data;
-  vh_lcell_t* cell = vh_lcell_new(id, size, cellview, vh->cells->length);
+  vh_lcell_t* cell = vh_lcell_new(id, size, cellview, vh->cells->length); // REL 0
 
   view_set_block_touch(cellview, 0, 1);
 
   // add subview
-  view_add(view, cellview);
+  view_add_subview(view, cellview);
 
   // store cell
   VADD(vh->cells, cell);
@@ -114,6 +122,8 @@ void vh_litem_add_cell(view_t* view, char* id, int size, view_t* cellview)
   // arrange and resize
   vh_lcell_arrange(vh->cells);
   vh_litem_resize(view);
+
+  REL(cell);
 }
 
 view_t* vh_litem_get_cell(view_t* view, char* id)
@@ -137,8 +147,8 @@ void vh_litem_rpl_cell(view_t* view, char* id, view_t* newcell)
     vh_lcell_t* cell = vh->cells->data[index];
     if (strcmp(cell->id, id) == 0)
     {
-      view_add(view, newcell);
-      view_remove(view, cell->view);
+      view_add_subview(view, newcell);
+      view_remove_from_parent(cell->view);
 
       cell->view = newcell;
       break;

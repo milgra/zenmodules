@@ -3,7 +3,7 @@
 
 #include "zc_bitmap.c"
 #include "zc_map.c"
-#include "zc_math4.c"
+#include "zm_math4.c"
 
 typedef struct _tm_coords_t tm_coords_t;
 struct _tm_coords_t
@@ -42,14 +42,25 @@ int         tm_put(tm_t* tm, char* id, int w, int h);
 
 #include "zc_memory.c"
 
+void tm_desc(void* p, int level)
+{
+  tm_t* tm = p;
+  printf("tm w %i h %i", tm->width, tm->height);
+}
+
+void tm_desc_blocks(void* p, int level)
+{
+  printf("tm blocks\n");
+}
+
 tm_t* tm_new(int w, int h)
 {
   int cols = w / 32;
   int rows = h / 32;
 
-  tm_t* tm   = mem_calloc(sizeof(tm_t), "tm_t", tm_del, NULL);
-  tm->coords = map_alloc();
-  tm->blocks = mem_calloc(sizeof(char) * cols * rows, "char*", NULL, NULL);
+  tm_t* tm   = CAL(sizeof(tm_t), tm_del, tm_desc);
+  tm->coords = map_new();
+  tm->blocks = CAL(sizeof(char) * cols * rows, NULL, tm_desc_blocks);
   tm->width  = w;
   tm->height = h;
   tm->cols   = cols;
@@ -161,10 +172,9 @@ int tm_put(tm_t* tm, char* id, int w, int h)
                                               .x   = ncx,
                                               .y   = ncy,
                                               .w   = w,
-                                              .h   = h}),
-                               "float*");
+                                              .h   = h}));
 
-    map_put(tm->coords, id, coords);
+    MPUTR(tm->coords, id, coords);
   }
   else
     return -2; // texmap is full

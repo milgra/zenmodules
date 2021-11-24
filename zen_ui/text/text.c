@@ -64,13 +64,16 @@ typedef struct _glyph_t
 } glyph_t;
 
 void text_init();
+void text_destroy();
 
 void text_break_glyphs(
     glyph_t*    glyphs,
     int         count,
     textstyle_t style,
     int         wth,
-    int*        hth);
+    int         hth,
+    int*        nwth,
+    int*        nhth);
 
 void text_align_glyphs(glyph_t*    glyphs,
                        int         count,
@@ -91,14 +94,16 @@ void text_layout(glyph_t*    glyphs,
                  int         count,
                  textstyle_t style,
                  int         wth,
-                 int         hth);
+                 int         hth,
+                 int*        nwth,
+                 int*        nhth);
 
 void text_render(
     str_t*      text,
     textstyle_t style,
     bm_t*       bitmap);
 
-void text_measure(str_t* text, textstyle_t style, int w, int* h);
+void text_measure(str_t* text, textstyle_t style, int w, int h, int* nw, int* nh);
 
 #endif
 
@@ -106,7 +111,7 @@ void text_measure(str_t* text, textstyle_t style, int w, int* h);
 
 #include "zc_graphics.c"
 #include "zc_map.c"
-#include "zc_math2.c"
+#include "zm_math2.c"
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -114,39 +119,59 @@ void text_measure(str_t* text, textstyle_t style, int w, int* h);
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
 
-map_t*         fonts  = NULL;
-unsigned char* gbytes = NULL; // byte array for glyph baking
-size_t         gcount = 0;    // byte array size for glyph baking
+struct _txt_t
+{
+  map_t*         fonts;
+  unsigned char* gbytes; // byte array for glyph baking
+  size_t         gcount; // byte array size for glyph baking
+} txt;
 
 void text_init()
 {
-  fonts  = MNEW();
-  gbytes = malloc(sizeof(unsigned char));
-  gcount = 1;
+  txt.fonts  = MNEW();                        // GREL 0
+  txt.gbytes = malloc(sizeof(unsigned char)); // GREL 1
+  txt.gcount = 1;
+}
+
+void text_destroy()
+{
+  vec_t* fonts = VNEW(); // REL 0
+  map_values(txt.fonts, fonts);
+
+  for (int i = 0; i < fonts->length; i++)
+  {
+    stbtt_fontinfo* font = fonts->data[i];
+    free(font->data); // GREL 2
+  }
+
+  REL(fonts);       // REL 0
+  REL(txt.fonts);   // GREL 0
+  free(txt.gbytes); // GREL 1
 }
 
 void text_font_load(char* path)
 {
-  assert(fonts != NULL);
+  assert(txt.fonts != NULL);
 
   struct stat filestat;
   char        succ = stat(path, &filestat);
   if (succ == 0 && filestat.st_size > 0)
   {
-    FILE* file = fopen(path, "rb");
+    FILE* file = fopen(path, "rb"); // CLOSE 0
 
     if (file)
     {
-      unsigned char* data = malloc((size_t)filestat.st_size);
+      unsigned char* data = malloc((size_t)filestat.st_size); // GREL 2
       fread(data, (size_t)filestat.st_size, 1, file);
 
       stbtt_fontinfo font;
       stbtt_InitFont(&font, data, stbtt_GetFontOffsetForIndex(data, 0));
 
-      void* fontp = HEAP(font, "stbtt_fontinfo");
-      MPUT(fonts, path, fontp);
+      MPUTR(txt.fonts, path, HEAP(font));
 
-      printf("Font loaded %s fonts in file %i\n", path, stbtt_GetNumberOfFonts(data));
+      printf("Font loaded %s txt.fonts in file %i\n", path, stbtt_GetNumberOfFonts(data));
+
+      fclose(file); // CLOSE 0
     }
     else
       printf("cannot open font %s\n", path);
@@ -162,14 +187,16 @@ void text_break_glyphs(
     int         count,
     textstyle_t style,
     int         wth,
-    int*        hth)
+    int         hth,
+    int*        nwth,
+    int*        nhth)
 {
 
-  stbtt_fontinfo* font = MGET(fonts, style.font);
+  stbtt_fontinfo* font = MGET(txt.fonts, style.font);
   if (font == NULL)
   {
     text_font_load(style.font);
-    font = MGET(fonts, style.font);
+    font = MGET(txt.fonts, style.font);
     if (!font) return;
   }
 
@@ -230,10 +257,10 @@ void text_break_glyphs(
     int size = w * h;
 
     // increase glyph baking bitmap size if needed
-    if (size > gcount)
+    if (size > txt.gcount)
     {
-      gcount = size;
-      gbytes = realloc(gbytes, gcount);
+      txt.gcount = size;
+      txt.gbytes = realloc(txt.gbytes, txt.gcount);
     }
 
     glyph.x       = xpos + x0;
@@ -265,23 +292,27 @@ void text_break_glyphs(
     // store glyph
     glyphs[index] = glyph;
 
-    if (cp == '\n' || cp == '\r' || (xpos > wth && style.multiline))
+    if (style.multiline)
     {
-      if (xpos > wth && style.multiline)
+      if (cp == '\n' || cp == '\r' || xpos > wth)
       {
-        // check if we already fell back to this index, break word if yes
-        if (spc_a == spc_p)
-          index -= 1;
-        else
-          index = spc_a;
-        spc_p = spc_a;
+        if (xpos > wth)
+        {
+          // check if we already fell back to this index, break word if yes
+          if (spc_a == spc_p)
+            index -= 1;
+          else
+            index = spc_a;
+          spc_p = spc_a;
+        }
+        xpos = 0.0;
+        ypos += (float)lineh * scale;
       }
-      xpos = 0.0;
-      ypos += (float)lineh * scale;
     }
   }
 
-  *hth = ypos;
+  *nwth = xpos;
+  *nhth = ypos;
 }
 
 void text_align_glyphs(glyph_t*    glyphs,
@@ -300,6 +331,8 @@ void text_align_glyphs(glyph_t*    glyphs,
 
     if (style.valign == VA_CENTER) vs = (h - height) / 2.0;
     if (style.valign == VA_BOTTOM) vs = h - height;
+
+    vs = roundf(vs) + 1.0; // TODO investigate this a little, maybe no magic numbers are needed
 
     for (int i = 0; i < count; i++)
     {
@@ -368,26 +401,26 @@ void text_render_glyph(glyph_t g, textstyle_t style, bm_t* bitmap)
     gfx_rect(bitmap, 0, 0, bitmap->w, bitmap->h, style.backcolor, 0);
 
     // get or load font
-    stbtt_fontinfo* font = MGET(fonts, style.font);
+    stbtt_fontinfo* font = MGET(txt.fonts, style.font);
     if (font == NULL)
     {
       text_font_load(style.font);
-      font = MGET(fonts, style.font);
+      font = MGET(txt.fonts, style.font);
       if (!font) return;
     }
 
     int size = g.w * g.h;
 
     // increase glyph baking bitmap size if needed
-    if (size > gcount)
+    if (size > txt.gcount)
     {
-      gcount = size;
-      gbytes = realloc(gbytes, gcount);
+      txt.gcount = size;
+      txt.gbytes = realloc(txt.gbytes, txt.gcount);
     }
 
     // bake
     stbtt_MakeCodepointBitmapSubpixel(font,
-                                      gbytes,
+                                      txt.gbytes,
                                       g.w,       // out widht
                                       g.h,       // out height
                                       g.w,       // out stride
@@ -402,7 +435,7 @@ void text_render_glyph(glyph_t g, textstyle_t style, bm_t* bitmap)
                 0,
                 0,
                 style.textcolor,
-                gbytes,
+                txt.gbytes,
                 g.w,
                 g.h);
   }
@@ -416,11 +449,11 @@ void text_render_glyphs(glyph_t*    glyphs,
   gfx_rect(bitmap, 0, 0, bitmap->w, bitmap->h, style.backcolor, 0);
 
   // get or load font
-  stbtt_fontinfo* font = MGET(fonts, style.font);
+  stbtt_fontinfo* font = MGET(txt.fonts, style.font);
   if (font == NULL)
   {
     text_font_load(style.font);
-    font = MGET(fonts, style.font);
+    font = MGET(txt.fonts, style.font);
     if (!font) return;
   }
 
@@ -435,14 +468,14 @@ void text_render_glyphs(glyph_t*    glyphs,
       int size = g.w * g.h;
 
       // increase glyph baking bitmap size if needed
-      if (size > gcount)
+      if (size > txt.gcount)
       {
-        gcount = size;
-        gbytes = realloc(gbytes, gcount);
+        txt.gcount = size;
+        txt.gbytes = realloc(txt.gbytes, txt.gcount);
       }
 
       stbtt_MakeCodepointBitmapSubpixel(font,
-                                        gbytes,
+                                        txt.gbytes,
                                         g.w,       // out widht
                                         g.h,       // out height
                                         g.w,       // out stride
@@ -456,7 +489,7 @@ void text_render_glyphs(glyph_t*    glyphs,
                   g.x,
                   g.y,
                   style.textcolor,
-                  gbytes,
+                  txt.gbytes,
                   g.w,
                   g.h);
     }
@@ -476,18 +509,19 @@ void text_layout(glyph_t*    glyphs,
                  int         count,
                  textstyle_t style,
                  int         wth,
-                 int         hth)
+                 int         hth,
+                 int*        nwth,
+                 int*        nhth)
 {
   if (style.margin_left == 0 && style.margin > 0) style.margin_left = style.margin;
   if (style.margin_right == 0 && style.margin > 0) style.margin_right = style.margin;
   if (style.margin_top == 0 && style.margin > 0) style.margin_top = style.margin;
   if (style.margin_bottom == 0 && style.margin > 0) style.margin_bottom = style.margin;
 
-  int w  = wth - style.margin_right - style.margin_left;
-  int h  = hth - style.margin_top - style.margin_bottom;
-  int nh = 0;
+  int w = wth - style.margin_right - style.margin_left;
+  int h = hth - style.margin_top - style.margin_bottom;
 
-  text_break_glyphs(glyphs, count, style, w, &nh);
+  text_break_glyphs(glyphs, count, style, w, h, nwth, nhth);
   text_align_glyphs(glyphs, count, style, w, h);
   text_shift_glyphs(glyphs, count, style);
 }
@@ -497,23 +531,26 @@ void text_render(
     textstyle_t style,
     bm_t*       bitmap)
 {
-  glyph_t* glyphs = malloc(sizeof(glyph_t) * text->length);
+  glyph_t* glyphs = malloc(sizeof(glyph_t) * text->length); // REL 0
   for (int i = 0; i < text->length; i++) glyphs[i].cp = text->codepoints[i];
 
-  text_layout(glyphs, text->length, style, bitmap->w, bitmap->h);
+  int nw;
+  int nh;
+
+  text_layout(glyphs, text->length, style, bitmap->w, bitmap->h, &nw, &nh);
   text_render_glyphs(glyphs, text->length, style, bitmap);
 
-  free(glyphs);
+  free(glyphs); // REL 1
 }
 
-void text_measure(str_t* text, textstyle_t style, int w, int* h)
+void text_measure(str_t* text, textstyle_t style, int w, int h, int* nw, int* nh)
 {
-  glyph_t* glyphs = malloc(sizeof(glyph_t) * text->length);
+  glyph_t* glyphs = malloc(sizeof(glyph_t) * text->length); // REL 0
   for (int i = 0; i < text->length; i++) glyphs[i].cp = text->codepoints[i];
 
-  text_break_glyphs(glyphs, text->length, style, w, h);
+  text_break_glyphs(glyphs, text->length, style, w, h, nw, nh);
 
-  free(glyphs);
+  free(glyphs); // REL 1
 }
 
 #endif

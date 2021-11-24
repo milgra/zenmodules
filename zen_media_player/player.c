@@ -9,6 +9,7 @@
 #include "zc_map.c"
 
 void  player_init();
+void  player_destroy();
 void  player_play(char* path);
 char* player_get_path();
 
@@ -27,6 +28,7 @@ void player_draw_video_to_texture(int index, int w, int h);
 void player_draw_waves(int channel, bm_t* bm, int edge);
 void player_draw_rdft(int channel, bm_t* bm, int edge);
 int  player_refresh();
+int  player_finished();
 
 #endif
 
@@ -47,11 +49,17 @@ static AVInputFormat* file_iformat;
 VideoState* is             = NULL;
 double      remaining_time = 0.0;
 char*       player_path    = NULL;
+int         player_ended   = 0;
 
 void player_init()
 {
   av_init_packet(&flush_pkt);
   flush_pkt.data = (uint8_t*)&flush_pkt;
+}
+
+void player_destroy()
+{
+  if (is != NULL) stream_close(is);
 }
 
 char* player_get_path()
@@ -63,7 +71,8 @@ void player_play(char* path)
 {
   player_path = path;
   if (is != NULL) stream_close(is);
-  is = stream_open(path, file_iformat);
+  is           = stream_open(path, file_iformat);
+  player_ended = 0;
 }
 
 int player_toggle_pause()
@@ -151,12 +160,18 @@ int player_refresh()
     if (is->play_finished)
     {
       stream_close(is);
-      is = NULL;
+      is           = NULL;
+      player_ended = 1;
       return 1;
     }
   }
 
   return 0;
+}
+
+int player_finished()
+{
+  return player_ended;
 }
 
 void player_draw_video_to_texture(int index, int w, int h)

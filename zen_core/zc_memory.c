@@ -312,7 +312,7 @@ void mem_stats()
   {
     if (mem_infos[index].live)
     {
-      printf("unreleased block %i at %s %i desc : ", index, mem_infos[index].file, mem_infos[index].line);
+      printf("unreleased block %i at %s %i desc : \n", index, mem_infos[index].file, mem_infos[index].line);
       mem_describe(mem_infos[index].ptr, 0);
       printf("\n");
       count++;

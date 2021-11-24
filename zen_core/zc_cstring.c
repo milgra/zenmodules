@@ -13,6 +13,8 @@ char*    cstr_new_readablec(uint32_t length);
 char*    cstr_new_alphanumeric(uint32_t length);
 void     cstr_describe(void* p, int level);
 void     cstr_tolower(char* str);
+char*    cstr_append(char* str, char* add);
+char*    cstr_append_sub(char* str, char* add, int from, int len);
 
 #endif
 
@@ -70,6 +72,28 @@ char* cstr_new_cstring(char* string)
     memcpy(result, string, strlen(string));
   }
   return result;
+}
+
+char* cstr_append(char* str, char* add)
+{
+  size_t needed = strlen(str) + strlen(add) + 1;
+
+  if (strlen(str) < needed) str = mem_realloc(str, needed);
+  strcat(str, add);
+
+  return str;
+}
+
+char* cstr_append_sub(char* str, char* add, int from, int len)
+{
+  size_t needed  = strlen(str) + len + 1;
+  int    oldsize = strlen(str);
+
+  if (strlen(str) < needed) str = mem_realloc(str, needed);
+  memcpy(str + oldsize, add + from, len);
+  str[needed - 1] = '\0';
+
+  return str;
 }
 
 /* reads up text file */

@@ -9,7 +9,6 @@
 #define zc_channel_h
 
 #include "zc_memory.c"
-#include <SDL.h>
 #include <assert.h>
 #include <pthread.h>
 #include <stdio.h>

@@ -28,7 +28,7 @@ char* cstr_new_path_append(char* root, char* component)
 char* cstr_new_path_remove_last_component(char* path)
 {
   int index;
-  for (index = strlen(path) - 1; index > -1; --index)
+  for (index = strlen(path) - 2; index > -1; --index)
   {
     if (path[index] == '/')
     {

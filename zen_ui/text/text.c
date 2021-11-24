@@ -37,6 +37,7 @@ typedef struct _textstyle_t
   char        multiline;
 
   float size;
+  int   line_height;
   int   margin;
   int   margin_top;
   int   margin_right;

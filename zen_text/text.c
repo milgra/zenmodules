@@ -1,12 +1,76 @@
-#ifndef text_ft_h
-#define text_ft_h
+// needed makefile additions:
+// CFLAGS += -I/usr/include/freetype2
+// LDFLAGS += -lfreetype
+
+#ifndef text_h
+#define text_h
 
 #include "text.c"
+#include "zc_bitmap.c"
+#include "zc_string.c"
+#include <stdint.h>
 
-void text_ft_init();
-void text_ft_destroy();
+typedef enum _textalign_t
+{
+  TA_LEFT,
+  TA_CENTER,
+  TA_RIGHT,
+  TA_JUSTIFY,
+} textalign_t;
 
-void text_ft_break_glyphs(
+typedef enum _vertalign_t
+{
+  VA_CENTER,
+  VA_TOP,
+  VA_BOTTOM,
+} vertalign_t;
+
+typedef enum _autosize_t
+{
+  AS_FIX,
+  AS_AUTO,
+} autosize_t;
+
+typedef struct _textstyle_t
+{
+  char*       font;
+  textalign_t align;
+  vertalign_t valign;
+  autosize_t  autosize;
+  char        multiline;
+  int         line_height;
+
+  float size;
+  int   margin;
+  int   margin_top;
+  int   margin_right;
+  int   margin_bottom;
+  int   margin_left;
+
+  uint32_t textcolor;
+  uint32_t backcolor;
+} textstyle_t;
+
+typedef struct _glyph_t
+{
+  int      x;
+  int      y;
+  int      w;
+  int      h;
+  float    x_scale;
+  float    y_scale;
+  float    x_shift;
+  float    y_shift;
+  float    asc;
+  float    desc;
+  float    base_y;
+  uint32_t cp;
+} glyph_t;
+
+void text_init();
+void text_destroy();
+
+void text_break_glyphs(
     glyph_t*    glyphs,
     int         count,
     textstyle_t style,
@@ -15,46 +79,44 @@ void text_ft_break_glyphs(
     int*        nwth,
     int*        nhth);
 
-void text_ft_align_glyphs(glyph_t*    glyphs,
-                          int         count,
-                          textstyle_t style,
-                          int         w,
-                          int         h);
+void text_align_glyphs(glyph_t*    glyphs,
+                       int         count,
+                       textstyle_t style,
+                       int         w,
+                       int         h);
 
-void text_ft_render_glyph(glyph_t     g,
-                          textstyle_t style,
-                          bm_t*       bitmap);
+void text_render_glyph(glyph_t     g,
+                       textstyle_t style,
+                       bm_t*       bitmap);
 
-void text_ft_render_glyphs(glyph_t*    glyphs,
-                           int         count,
-                           textstyle_t style,
-                           bm_t*       bitmap);
+void text_render_glyphs(glyph_t*    glyphs,
+                        int         count,
+                        textstyle_t style,
+                        bm_t*       bitmap);
 
-void text_ft_layout(glyph_t*    glyphs,
-                    int         count,
-                    textstyle_t style,
-                    int         wth,
-                    int         hth,
-                    int*        nwth,
-                    int*        nhth);
+void text_layout(glyph_t*    glyphs,
+                 int         count,
+                 textstyle_t style,
+                 int         wth,
+                 int         hth,
+                 int*        nwth,
+                 int*        nhth);
 
-void text_ft_render(
+void text_render(
     str_t*      text,
     textstyle_t style,
     bm_t*       bitmap);
 
-void text_ft_measure(str_t* text, textstyle_t style, int w, int h, int* nw, int* nh);
+void text_measure(str_t* text, textstyle_t style, int w, int h, int* nw, int* nh);
 
 #endif
 
 #if __INCLUDE_LEVEL__ == 0
 
-#include "stb_truetype.h"
 #include "text.c"
 #include "zc_graphics.c"
 #include "zc_map.c"
 #include "zc_wrapper.c"
-#include "zm_math2.c"
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -73,7 +135,7 @@ struct _txt_ft_t
   size_t         gcount; // byte array size for glyph baking
 } txt_ft;
 
-void text_ft_init()
+void text_init()
 {
   txt_ft.libs   = MNEW();
   txt_ft.fonts  = MNEW();                        // GREL 0
@@ -81,7 +143,7 @@ void text_ft_init()
   txt_ft.gcount = 1;
 }
 
-void text_ft_destroy()
+void text_destroy()
 {
   vec_t* paths = VNEW(); // REL 0
   map_keys(txt_ft.fonts, paths);
@@ -105,7 +167,7 @@ void text_ft_destroy()
   free(txt_ft.gbytes); // GREL 1
 }
 
-void text_ft_font_load(char* path)
+void text_font_load(char* path)
 {
   assert(txt_ft.fonts != NULL);
 
@@ -128,18 +190,15 @@ void text_ft_font_load(char* path)
       MPUTR(txt_ft.libs, path, libwrp);
       MPUTR(txt_ft.fonts, path, facewrp);
 
-      if (error != 0)
-      {
-        printf("FT Set Char Size error\n");
-      }
+      if (error != 0) printf("FT Set Char Size error\n");
 
-      printf("Font loaded %s txt_ft.fonts in file %li\n", path, face->num_faces);
+      // printf("Font loaded %s txt_ft.fonts in file %li\n", path, face->num_faces);
     }
     else
     {
       if (error == FT_Err_Unknown_File_Format)
       {
-        printf("Unknown font file format\n");
+        printf("FT Unknown font file format\n");
       }
       else if (error)
       {
@@ -154,7 +213,7 @@ void text_ft_font_load(char* path)
 // breaks text into lines in given rect
 // first step for further alignment
 
-void text_ft_break_glyphs(
+void text_break_glyphs(
     glyph_t*    glyphs,
     int         count,
     textstyle_t style,
@@ -167,7 +226,7 @@ void text_ft_break_glyphs(
   wrapper_t* facewrp = MGET(txt_ft.fonts, style.font);
   if (facewrp == NULL)
   {
-    text_ft_font_load(style.font);
+    text_font_load(style.font);
     facewrp = MGET(txt_ft.fonts, style.font);
     if (!facewrp) return;
   }
@@ -220,7 +279,8 @@ void text_ft_break_glyphs(
     error = FT_Load_Glyph(font, glyph_index, FT_LOAD_DEFAULT);
     if (error) printf("FT LOAD CHAR ERROR\n");
 
-    /* printf("glyph loaded, width %li height %li horiBearingX %li horiBearingY %li horiAdvance %li vertBearingX %li vertBearingY %li vertAdvance %li\n", */
+    /* printf("GLYPH: %c loaded, width %li height %li horiBearingX %li horiBearingY %li horiAdvance %li vertBearingX %li vertBearingY %li vertAdvance %li\n", */
+    /*        glyph.cp, */
     /*        font->glyph->metrics.width >> 6, */
     /*        font->glyph->metrics.height >> 6, */
     /*        font->glyph->metrics.horiBearingX >> 6, */
@@ -258,7 +318,7 @@ void text_ft_break_glyphs(
     x1 = bbox.xMax >> 6;
     y1 = bbox.yMax >> 6;
 
-    /* printf("x0 %i y0 %i x1 %i y1 %i\n", x0, y0, x1, y1); */
+    // printf("%c x0 %i y0 %i x1 %i y1 %i\n", glyph.cp, x0, y0, x1, y1);
 
     int w = x1 - x0;
     int h = y1 - y0;
@@ -266,9 +326,10 @@ void text_ft_break_glyphs(
     int size = w * h;
 
     /* printf("w %i h %i size %i\n", w, h, size); */
+    // printf("%c bitmap left %i bitmap top %i\n", glyph.cp, font->glyph->bitmap_left, font->glyph->bitmap_top);
 
-    glyph.x       = xpos + x0;
-    glyph.y       = ypos + y0;
+    glyph.x       = xpos + font->glyph->bitmap_left;
+    glyph.y       = ypos - font->glyph->bitmap_top;
     glyph.w       = w;
     glyph.h       = h;
     glyph.x_shift = x_shift;
@@ -296,7 +357,7 @@ void text_ft_break_glyphs(
     // printf("kerning x %li y %li\n", kerning.x, kerning.y);
 
     // advance with kerning
-    if (ncp > 0) xpos += kerning.x;
+    if (ncp > 0) xpos += kerning.x >> 6;
 
     // line break
     if (cp == '\n' || cp == '\r') glyph.w = 0; // they should be invisible altough they get an empty unicode font face
@@ -328,11 +389,11 @@ void text_ft_break_glyphs(
   *nhth = ypos;
 }
 
-void text_ft_align_glyphs(glyph_t*    glyphs,
-                          int         count,
-                          textstyle_t style,
-                          int         w,
-                          int         h)
+void text_align_glyphs(glyph_t*    glyphs,
+                       int         count,
+                       textstyle_t style,
+                       int         w,
+                       int         h)
 {
   if (count > 0)
   {
@@ -395,9 +456,9 @@ void text_ft_align_glyphs(glyph_t*    glyphs,
   }
 }
 
-void text_ft_shift_glyphs(glyph_t*    glyphs,
-                          int         count,
-                          textstyle_t style)
+void text_shift_glyphs(glyph_t*    glyphs,
+                       int         count,
+                       textstyle_t style)
 {
   int x = style.margin_left;
   int y = style.margin_top;
@@ -410,7 +471,7 @@ void text_ft_shift_glyphs(glyph_t*    glyphs,
   }
 }
 
-void text_ft_render_glyph(glyph_t g, textstyle_t style, bm_t* bitmap)
+void text_render_glyph(glyph_t g, textstyle_t style, bm_t* bitmap)
 {
   if (g.w > 0 && g.h > 0)
   {
@@ -419,7 +480,7 @@ void text_ft_render_glyph(glyph_t g, textstyle_t style, bm_t* bitmap)
     wrapper_t* facewrp = MGET(txt_ft.fonts, style.font);
     if (facewrp == NULL)
     {
-      text_ft_font_load(style.font);
+      text_font_load(style.font);
       facewrp = MGET(txt_ft.fonts, style.font);
       if (!facewrp) return;
     }
@@ -459,10 +520,10 @@ void text_ft_render_glyph(glyph_t g, textstyle_t style, bm_t* bitmap)
   }
 }
 
-void text_ft_render_glyphs(glyph_t*    glyphs,
-                           int         count,
-                           textstyle_t style,
-                           bm_t*       bitmap)
+void text_render_glyphs(glyph_t*    glyphs,
+                        int         count,
+                        textstyle_t style,
+                        bm_t*       bitmap)
 {
   if ((style.backcolor & 0xFF) > 0) gfx_rect(bitmap, 0, 0, bitmap->w, bitmap->h, style.backcolor, 0);
 
@@ -470,7 +531,7 @@ void text_ft_render_glyphs(glyph_t*    glyphs,
   wrapper_t* libwrp  = MGET(txt_ft.libs, style.font);
   if (facewrp == NULL)
   {
-    text_ft_font_load(style.font);
+    text_font_load(style.font);
     facewrp = MGET(txt_ft.fonts, style.font);
     libwrp  = MGET(txt_ft.libs, style.font);
     if (!facewrp) return;
@@ -548,7 +609,7 @@ void text_ft_render_glyphs(glyph_t*    glyphs,
   }
 }
 
-void text_ft_describe_glyphs(glyph_t* glyphs, int count)
+void text_describe_glyphs(glyph_t* glyphs, int count)
 {
   for (int i = 0; i < count; i++)
   {
@@ -557,13 +618,13 @@ void text_ft_describe_glyphs(glyph_t* glyphs, int count)
   }
 }
 
-void text_ft_layout(glyph_t*    glyphs,
-                    int         count,
-                    textstyle_t style,
-                    int         wth,
-                    int         hth,
-                    int*        nwth,
-                    int*        nhth)
+void text_layout(glyph_t*    glyphs,
+                 int         count,
+                 textstyle_t style,
+                 int         wth,
+                 int         hth,
+                 int*        nwth,
+                 int*        nhth)
 {
   if (style.margin_left == 0 && style.margin > 0) style.margin_left = style.margin;
   if (style.margin_right == 0 && style.margin > 0) style.margin_right = style.margin;
@@ -573,12 +634,12 @@ void text_ft_layout(glyph_t*    glyphs,
   int w = wth - style.margin_right - style.margin_left;
   int h = hth - style.margin_top - style.margin_bottom;
 
-  text_ft_break_glyphs(glyphs, count, style, w, h, nwth, nhth);
-  text_ft_align_glyphs(glyphs, count, style, w, h);
-  text_ft_shift_glyphs(glyphs, count, style);
+  text_break_glyphs(glyphs, count, style, w, h, nwth, nhth);
+  text_align_glyphs(glyphs, count, style, w, h);
+  text_shift_glyphs(glyphs, count, style);
 }
 
-void text_ft_render(
+void text_render(
     str_t*      text,
     textstyle_t style,
     bm_t*       bitmap)
@@ -589,18 +650,18 @@ void text_ft_render(
   int nw;
   int nh;
 
-  text_ft_layout(glyphs, text->length, style, bitmap->w, bitmap->h, &nw, &nh);
-  text_ft_render_glyphs(glyphs, text->length, style, bitmap);
+  text_layout(glyphs, text->length, style, bitmap->w, bitmap->h, &nw, &nh);
+  text_render_glyphs(glyphs, text->length, style, bitmap);
 
   free(glyphs); // REL 1
 }
 
-void text_ft_measure(str_t* text, textstyle_t style, int w, int h, int* nw, int* nh)
+void text_measure(str_t* text, textstyle_t style, int w, int h, int* nw, int* nh)
 {
   glyph_t* glyphs = malloc(sizeof(glyph_t) * text->length); // REL 0
   for (int i = 0; i < text->length; i++) glyphs[i].cp = text->codepoints[i];
 
-  text_ft_break_glyphs(glyphs, text->length, style, w, h, nw, nh);
+  text_break_glyphs(glyphs, text->length, style, w, h, nw, nh);
 
   free(glyphs); // REL 1
 }
